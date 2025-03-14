@@ -661,50 +661,52 @@ with st.expander("高级预测参数"):
     with col2:
         na_type = st.radio("核酸类型", ["DNA", "RNA"])
 
-def run_rnafold(sequence, temp=37, dtype="DNA"):
-    """使用RNAfold预测二级结构"""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # 准备输入文件
-        input_file = os.path.join(tmpdir, "input.fa")
-        with open(input_file, "w") as f:
-            f.write(f">sequence\n{sequence}\n")
-        
-        # 构建命令参数
-        cmd = ["RNAfold", "--noPS", "-T", str(temp)]
-        if dtype == "DNA":
-            cmd += ["--noconv", "-d2"]  # DNA模式参数
-        
-        try:
-            # 运行RNAfold
-            result = subprocess.run(
-                cmd, 
-                cwd=tmpdir,
-                input=f"{sequence}\n",
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            # 解析输出
-            if result.returncode == 0:
-                output = result.stdout.split('\n')
-                structure = output[1].split()[0]
-                energy = output[1].split()[-1].strip('()')
-                return structure, energy, None
-            else:
-                return None, None, f"RNAfold错误: {result.stderr}"
-                
-        except Exception as e:
-            return None, None, str(e)
+def predict_simple_structure(sequence):
+    """简单的DNA二级结构预测"""
+    # 初始化结构字符串
+    structure = ['.' for _ in range(len(sequence))]
+    
+    # 定义碱基对
+    pairs = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G'}
+    min_loop_size = 3
+    
+    # 寻找可能的碱基配对
+    for i in range(len(sequence)):
+        if structure[i] != '.':
+            continue
+        for j in range(len(sequence)-1, i+min_loop_size, -1):
+            if structure[j] != '.':
+                continue
+            if pairs.get(sequence[i]) == sequence[j]:
+                # 检查是否形成稳定的茎
+                if j - i > min_loop_size:
+                    structure[i] = '('
+                    structure[j] = ')'
+                    break
+    
+    return ''.join(structure)
 
-def plot_structure_vienna(sequence, structure):
-    """使用ViennaRNA包绘制DNA结构图"""
-    try:
-        # 首先尝试使用matplotlib绘制
-        return {'png': plot_structure_simple(sequence, structure).getvalue()}
-    except Exception as e:
-        st.error(f"结构图生成失败: {str(e)}")
-        return None
+def estimate_energy(sequence, structure):
+    """估算结构的自由能"""
+    # 简化的能量计算
+    gc_pairs = 0
+    at_pairs = 0
+    stack = []
+    
+    for i, (base, struct) in enumerate(zip(sequence, structure)):
+        if struct == '(':
+            stack.append(base)
+        elif struct == ')':
+            if stack:
+                prev_base = stack.pop()
+                if (prev_base in 'GC' and base in 'GC'):
+                    gc_pairs += 1
+                else:
+                    at_pairs += 1
+    
+    # 简化的能量模型（kcal/mol）
+    energy = -3 * gc_pairs - 2 * at_pairs
+    return f"{energy:.2f}"
 
 if st.button("预测二级结构"):
     # 验证中间序列
@@ -721,49 +723,27 @@ if st.button("预测二级结构"):
     full_3 = st.session_state.reverse_primer
     complete_seq = f"{full_5}{middle_seq}{reverse_complement(full_3)}"
     
-    # 运行预测
-    with st.spinner("正在运行RNAfold预测..."):
-        structure, energy, error = run_rnafold(
-            complete_seq,
-            temp=temperature,
-            dtype=na_type
-        )
+    # 使用简化的预测方法
+    structure = predict_simple_structure(complete_seq)
+    energy = estimate_energy(complete_seq, structure)
     
-    if error:
-        st.error(f"预测失败: {error}")
-    else:
-        st.subheader("预测结果")
-        col1, col2 = st.columns([1, 2])
+    st.subheader("预测结果")
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.markdown("**基本参数**")
+        st.write(f"总长度: {len(complete_seq)} nt")
+        st.write(f"预估自由能: {energy} kcal/mol")
+        st.write(f"温度: {temperature}°C")
         
-        with col1:
-            st.markdown("**基本参数**")
-            st.write(f"总长度: {len(complete_seq)} nt")
-            st.write(f"自由能: {energy} kcal/mol")
-            st.write(f"温度: {temperature}°C")
-            
-        with col2:
-            st.markdown("**二级结构表示**")
-            st.code(f"5' {structure} 3'")
-            
-            # 使用ViennaRNA生成结构图
-            result = plot_structure_vienna(complete_seq, structure)
-            if result:
-                # 显示PNG图像
-                st.image(result['png'], caption="DNA二级结构示意图", use_column_width=True)
-                
-                # 如果有PS文件，提供下载选项
-                if result['ps']:
-                    st.download_button(
-                        "下载高清结构图(PS格式)",
-                        result['ps'],
-                        file_name="structure.ps",
-                        mime="application/postscript"
-                    )
-            else:
-                # 如果生成失败，使用matplotlib方案作为备选
-                st.warning("结构图生成失败，使用简化图形显示")
-                img_data = plot_structure_simple(complete_seq, structure)
-                st.image(img_data, caption="DNA二级结构示意图", use_column_width=True)
+    with col2:
+        st.markdown("**二级结构表示**")
+        st.code(f"5' {structure} 3'")
+        
+        # 使用matplotlib绘制结构图
+        result = plot_structure_simple(complete_seq, structure)
+        if result:
+            st.image(result, caption="DNA二级结构示意图", use_column_width=True)
 
 # 帮助信息
 with st.expander("设计原理说明"):
