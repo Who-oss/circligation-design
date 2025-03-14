@@ -344,118 +344,40 @@ def analyze_primers(forward_primer, reverse_primer):
     return results
 
 def plot_structure_simple(sequence, structure):
-    """使用matplotlib绘制更清晰的DNA二级结构图"""
+    """使用matplotlib绘制简化的DNA二级结构图"""
     import matplotlib.pyplot as plt
     import numpy as np
+    import io
     
     # 创建图形
-    fig, ax = plt.subplots(figsize=(12, 6))
+    plt.figure(figsize=(10, 6))
     
-    def calculate_coordinates(sequence, structure):
-        """计算更自然的坐标布局"""
-        coords = {}
-        pairs = []
-        stack = []
-        
-        # 找出所有配对
-        for i, char in enumerate(structure):
-            if char == '(':
-                stack.append(i)
-            elif char == ')' and stack:
-                pairs.append((stack.pop(), i))
-        
-        # 计算主链的基本弧形
-        total_length = len(sequence)
-        # 使用正弦函数创建基本弧形
-        x = np.linspace(-total_length/4, total_length/4, total_length)
-        y = np.sin(np.pi * x / total_length) * (total_length/8)
-        
-        # 初始化基本坐标
-        for i in range(total_length):
-            coords[i] = [x[i], y[i]]
-        
-        # 调整配对区域
-        for start, end in pairs:
-            # 计算配对区域的中点
-            mid_x = (x[start] + x[end]) / 2
-            mid_y = (y[start] + y[end]) / 2
-            
-            # 调整配对碱基的位置，使其更接近
-            span = abs(x[end] - x[start])
-            new_span = min(span * 0.7, 3.0)  # 减小配对碱基间距
-            
-            # 更新配对碱基的坐标
-            coords[start] = [mid_x - new_span/2, mid_y]
-            coords[end] = [mid_x + new_span/2, mid_y]
-        
-        return coords, pairs
-    
-    # 计算坐标
-    coords, pairs = calculate_coordinates(sequence, structure)
-    
-    # 绘制骨架连接线
-    for i in range(len(sequence)-1):
-        x1, y1 = coords[i]
-        x2, y2 = coords[i+1]
-        # 使用更细的线条
-        ax.plot([x1, x2], [y1, y2], '-', color='#E0E0E0', 
-                linewidth=0.5, alpha=0.5, zorder=1)
-    
-    # 绘制配对连接
-    for start, end in pairs:
-        x1, y1 = coords[start]
-        x2, y2 = coords[end]
-        # 使用虚线表示配对
-        ax.plot([x1, x2], [y1, y2], '--', color='#BDBDBD',
-                linewidth=0.5, alpha=0.5, zorder=1)
+    # 绘制序列
+    x = np.arange(len(sequence))
+    plt.plot(x, np.zeros_like(x), 'k-', alpha=0.2)
     
     # 绘制碱基
-    for i, base in enumerate(sequence):
-        x, y = coords[i]
-        color = {
-            'A': '#2ecc71',  # 绿色
-            'T': '#e74c3c',  # 红色
-            'G': '#f39c12',  # 橙色
-            'C': '#3498db'   # 蓝色
-        }.get(base, 'black')
-        
-        # 使用更大的字体
-        ax.text(x, y, base, ha='center', va='center',
-               color=color, fontsize=10, fontweight='bold',
-               zorder=2)
+    for i, (base, struct) in enumerate(zip(sequence, structure)):
+        color = {'A': 'green', 'T': 'red', 'G': 'orange', 'C': 'blue'}.get(base, 'black')
+        y = 0 if struct == '.' else (0.5 if struct == '(' else -0.5)
+        plt.text(i, y, base, ha='center', va='center', color=color, fontsize=10)
     
-    # 添加5'和3'标签
-    first_x, first_y = coords[0]
-    last_x, last_y = coords[len(sequence)-1]
-    ax.text(first_x-1, first_y, "5'", ha='right', va='center',
-            color='black', fontsize=10)
-    ax.text(last_x+1, last_y, "3'", ha='left', va='center',
-            color='black', fontsize=10)
+    # 绘制配对连接
+    stack = []
+    for i, char in enumerate(structure):
+        if char == '(':
+            stack.append(i)
+        elif char == ')' and stack:
+            start = stack.pop()
+            plt.plot([start, i], [0.3, 0.3], 'k:', alpha=0.5)
     
-    # 添加能量信息
-    if 'energy' in globals():
-        ax.text(first_x, min(c[1] for c in coords.values())-1,
-                f'dG = {energy} kcal/mol',
-                ha='left', va='top', fontsize=9, color='#666666')
+    # 设置图形属性
+    plt.axis('off')
+    plt.title('DNA Secondary Structure')
     
-    # 设置图表属性
-    margin = 2
-    ax.set_xlim(min(c[0] for c in coords.values()) - margin,
-                max(c[0] for c in coords.values()) + margin)
-    ax.set_ylim(min(c[1] for c in coords.values()) - margin,
-                max(c[1] for c in coords.values()) + margin)
-    
-    # 保持纵横比
-    ax.set_aspect('equal')
-    ax.axis('off')
-    
-    # 调整布局
-    plt.tight_layout()
-    
-    # 保存图像
+    # 保存图形
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=300, bbox_inches='tight',
-                facecolor='white', edgecolor='none')
+    plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
     plt.close()
     buf.seek(0)
     return buf
@@ -777,124 +699,9 @@ def run_rnafold(sequence, temp=37, dtype="DNA"):
 
 def plot_structure_vienna(sequence, structure):
     """使用ViennaRNA包绘制DNA结构图"""
-    import subprocess
-    import os
-    import tempfile
-    from pathlib import Path
-    import platform
-    
     try:
-        # 创建临时文件夹
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # 切换到临时目录
-            current_dir = os.getcwd()
-            os.chdir(temp_dir)
-            
-            # 运行RNAfold生成PS文件
-            cmd = [
-                "RNAfold",
-                "--noconv",     # DNA模式
-                "-d2",         # DNA参数
-                "-p0"          # 不计算配分函数
-            ]
-            
-            # 在临时目录中运行命令
-            result = subprocess.run(
-                cmd,
-                input=sequence,
-                text=True,
-                capture_output=True
-            )
-            
-            if result.returncode != 0:
-                raise Exception(f"RNAfold错误: {result.stderr}")
-            
-            # 查找生成的PS文件
-            ps_files = list(Path(temp_dir).glob("*.ps"))
-            if ps_files:
-                ps_file = ps_files[0]
-                
-                # 读取PS文件用于下载
-                with open(ps_file, "rb") as f:
-                    ps_data = f.read()
-                
-                # 使用ImageMagick转换PS为PNG
-                png_file = ps_file.with_suffix('.png')
-                
-                # 根据操作系统选择正确的ImageMagick命令
-                if platform.system() == 'Windows':
-                    # Windows系统使用magick命令
-                    convert_cmd = [
-                        "magick",
-                        str(ps_file),
-                        "-density", "300",
-                        "-quality", "100",
-                        str(png_file)
-                    ]
-                else:
-                    # Linux/Mac系统使用convert命令
-                    convert_cmd = [
-                        "convert",
-                        str(ps_file),
-                        "-density", "300",
-                        "-quality", "100",
-                        str(png_file)
-                    ]
-                
-                try:
-                    convert_result = subprocess.run(convert_cmd, capture_output=True, text=True)
-                    if convert_result.returncode != 0:
-                        # 如果转换失败，尝试使用完整路径
-                        if platform.system() == 'Windows':
-                            # 尝试从默认安装路径运行
-                            magick_paths = [
-                                r"C:\Program Files\ImageMagick-7.1.1-Q16-HDRI\magick.exe",
-                                r"C:\Program Files\ImageMagick-7.1.1-Q16\magick.exe",
-                                r"D:\some_APPs_low_friquency\imageMagick\ImageMagick-7.1.1-Q16-HDRI\magick.exe"
-                            ]
-                            for magick_path in magick_paths:
-                                if os.path.exists(magick_path):
-                                    convert_cmd[0] = magick_path
-                                    convert_result = subprocess.run(convert_cmd, capture_output=True, text=True)
-                                    if convert_result.returncode == 0:
-                                        break
-                            else:
-                                st.error("无法找到ImageMagick，请确保已正确安装。")
-                                return {'ps': ps_data}
-                except FileNotFoundError:
-                    st.error("未找到ImageMagick，请确保已安装并添加到系统路径。")
-                    return {'ps': ps_data}
-                
-                if convert_result.returncode != 0:
-                    # 如果转换失败，返回PS数据供下载
-                    return {'ps': ps_data}
-                
-                # 读取PNG文件
-                with open(png_file, "rb") as f:
-                    png_data = f.read()
-                
-                return {
-                    'png': png_data,  # PNG数据用于显示
-                    'ps': ps_data     # PS数据用于下载
-                }
-            else:
-                raise Exception(f"找不到PS文件。目录内容: {os.listdir(temp_dir)}")
-            
-        finally:
-            # 切回原目录
-            os.chdir(current_dir)
-            # 清理临时文件
-            try:
-                for file in Path(temp_dir).glob("*"):
-                    try:
-                        file.unlink()
-                    except:
-                        pass
-                os.rmdir(temp_dir)
-            except:
-                pass
-            
+        # 首先尝试使用matplotlib绘制
+        return {'png': plot_structure_simple(sequence, structure).getvalue()}
     except Exception as e:
         st.error(f"结构图生成失败: {str(e)}")
         return None

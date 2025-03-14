@@ -1,2 +1,7 @@
 viennarna
-imagemagick 
+imagemagick
+python3-dev
+build-essential
+libcairo2-dev
+pkg-config
+python3-matplotlib 
