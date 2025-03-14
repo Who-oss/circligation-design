@@ -36,7 +36,7 @@
 ## 本地部署
 1. 克隆仓库
 ```bash
-git clone https://github.com/你的用户名/circligation-design.git
+git clone https://github.com/Who-oss/circligation-design.git
 cd circligation-design
 ```
 
